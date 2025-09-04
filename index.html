@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full-Screen Chalkboard with Curriculum</title>
+    <!-- Tailwind CSS CDN for general styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the chalkboard effect */
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent scrolling */
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Ensure body has a consistent background */
+        }
+
+        #chalkboard-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #2c5234; /* Dark green chalkboard color */
+            cursor: crosshair;
+            touch-action: none; /* Prevent default touch actions like scrolling/zooming */
+        }
+
+        /* Bottom control container for all tools and curriculum */
+        .bottom-controls-container {
+            position: fixed;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            width: 90%;
+            max-width: 900px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px;
+            background-color: rgba(44, 62, 80, 0.7);
+            backdrop-filter: blur(5px);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            justify-content: flex-start; /* Aligns items to the left */
+            align-items: center;
+        }
+
+        .bottom-controls-container button,
+        .bottom-controls-container select {
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        /* Specific styling for active buttons */
+        .bottom-controls-container button.active,
+        .bottom-controls-container select.active {
+            background-color: rgba(255, 255, 255, 0.35);
+            border-color: #fff;
+            transform: translateY(-2px);
+        }
+
+        .bottom-controls-container select {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .bottom-controls-container button {
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .bottom-controls-container button:hover,
+        .bottom-controls-container select:hover {
+            background-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        /* Styling for the new text input elements */
+        .text-input-group {
+            display: flex;
+            flex-grow: 1; /* Allow the input to grow and fill space */
+            gap: 10px;
+            align-items: center;
+            min-width: 200px; /* Ensure it doesn't get too small on mobile */
+        }
+
+        #textInput {
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            flex-grow: 1;
+        }
+
+        #textInput::placeholder {
+            color: #ccc;
+        }
+
+        /* Message box for alerts */
+        #message-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: none; /* Hidden by default */
+            text-align: center;
+        }
+
+        #message-box button {
+            background-color: #4a5568;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <canvas id="chalkboard-canvas"></canvas>
+
+    <!-- Bottom UI controls for the drawing application, now including text input -->
+    <div class="bottom-controls-container">
+        <!-- Text input group -->
+        <div class="text-input-group">
+            <input type="text" id="textInput" placeholder="Enter text...">
+            <button id="drawTextBtn" class="bg-blue-500 hover:bg-blue-600">Draw Text</button>
+        </div>
+
+        <!-- Remaining drawing and curriculum controls -->
+        <select id="session-select" class="form-select"></select>
+        <select id="topic-select" class="form-select"></select>
+        <button id="showExercisesBtn" class="bg-purple-500 hover:bg-purple-600">Show Exercises</button>
+        <button id="toggleGridBtn" class="bg-gray-600 hover:bg-gray-700">Toggle Grid</button>
+        <button id="eraserBtn" class="bg-blue-500 hover:bg-blue-600">Eraser</button>
+        <button id="clearBtn" class="bg-red-500 hover:bg-red-600">Clear</button>
+    </div>
+
+    <!-- Message box for alerts -->
+    <div id="message-box">
+        <p id="message-text"></p>
+        <button id="message-ok-btn">OK</button>
+    </div>
+
+    <script>
+        // Get the canvas element and its 2D rendering context
+        const canvas = document.getElementById('chalkboard-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Get control elements
+        const sessionSelect = document.getElementById('session-select');
+        const topicSelect = document.getElementById('topic-select');
+        const showExercisesBtn = document.getElementById('showExercisesBtn');
+        const toggleGridBtn = document.getElementById('toggleGridBtn');
+        const eraserBtn = document.getElementById('eraserBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const textInput = document.getElementById('textInput');
+        const drawTextBtn = document.getElementById('drawTextBtn');
+
+        // Message box elements
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+        const messageOkBtn = document.getElementById('message-ok-btn');
+
+        // Drawing state variables
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        let currentColor = '#fceb9e'; // Bright yellow chalk color
+
+        // This array will hold all of the user's drawing paths and text entries
+        let drawingHistory = [];
+        let currentDrawingPath = [];
+
+        // App state to manage the active mode
+        const appState = {
+            mode: 'draw', // 'draw', 'erase', 'text', 'curriculum'
+            isGridActive: false,
+            curriculumContent: null // Stores the currently displayed curriculum object
+        };
+
+        // Constants for chalkboard
+        const CHALKBOARD_COLOR = '#2c5234';
+        const CHALK_THICKNESS = 4;
+        const ERASER_THICKNESS = 20;
+        const TEXT_FONT_SIZE = 24;
+        const HEADER_FONT_SIZE = 36;
+        const SUBHEADER_FONT_SIZE = 30; // Increased size
+        const LIST_ITEM_FONT_SIZE = 26; // Increased size
+        const GRID_SPACING = 50;
+
+        // The curriculum content, structured for the chalkboard app
+        const curriculum = [
+            {
+                session: "Session 1: Foundations of Algebra 2",
+                topics: [
+                    {
+                        name: "Solving Literal Equations",
+                        examples: [
+                            "The formula for the area of a trapezoid is A = ½h(b₁ + b₂). Solve this equation for b₁.",
+                            "1. Multiply both sides by 2: 2A = h(b₁ + b₂).",
+                            "2. Divide both sides by h: 2A/h = b₁ + b₂.",
+                            "3. Subtract b₂ from both sides: 2A/h - b₂ = b₁."
+                        ],
+                        exercises: [
+                            "1. Solve the formula V = lwh for l.",
+                            "2. Solve the formula P = 2l + 2w for w."
+                        ]
+                    }
+                ],
+                skills: ["Rearrange equations and formulas to isolate a variable."]
+            },
+            {
+                session: "Session 2: Functions and Their Graphs",
+                topics: [
+                    {
+                        name: "Function Notation",
+                        examples: [
+                            "If f(x) = 3x - 5, find f(4).",
+                            "Substitute 4 for x: f(4) = 3(4) - 5 = 7."
+                        ],
+                        exercises: [
+                            "1. If g(x) = x² + 2, find g(3).",
+                            "2. If h(x) = 2x - 1, find h(5)."
+                        ]
+                    },
+                    {
+                        name: "Domain and Range",
+                        examples: [
+                            "Find the domain and range of the function f(x) = √(x+2).",
+                            "Domain: The expression under the square root must be non-negative. x+2 ≥ 0, so x ≥ -2.",
+                            "Range: The output of a square root is always non-negative. f(x) ≥ 0."
+                        ],
+                        exercises: [
+                            "1. Find the domain of f(x) = 1/(x-3).",
+                            "2. Find the range of g(x) = x² + 1."
+                        ]
+                    }
+                ],
+                skills: ["Evaluate functions", "analyze domain and range from a graph or equation."]
+            },
+            {
+                session: "Session 3: Absolute Value Functions and Equations",
+                topics: [
+                    {
+                        name: "Solving Absolute Value Equations",
+                        examples: [
+                            "Solve |2x - 1| = 7.",
+                            "Case 1: 2x - 1 = 7, so 2x = 8, and x = 4.",
+                            "Case 2: 2x - 1 = -7, so 2x = -6, and x = -3."
+                        ],
+                        exercises: [
+                            "1. Solve |x + 5| = 12.",
+                            "2. Solve |3y - 2| = 1."
+                        ]
+                    },
+                    {
+                        name: "Graphing Absolute Value Functions",
+                        examples: [
+                            "Describe the transformations on the graph of y = |x + 3| - 2.",
+                            "Shifted 3 units left due to (x + 3) and 2 units down due to (-2)."
+                        ],
+                        exercises: [
+                            "1. Graph y = |x - 1| + 4.",
+                            "2. Describe the transformations on y = -|x|."
+                        ]
+                    }
+                ],
+                skills: ["Solve absolute value equations", "understand transformations of absolute value functions."]
+            },
+            {
+                session: "Session 4: Quadratic Functions and Complex Numbers",
+                topics: [
+                    {
+                        name: "Solving with the Quadratic Formula",
+                        examples: [
+                            "Solve 2x² + 5x - 3 = 0 using the quadratic formula.",
+                            "x = (-b ± √(b² - 4ac)) / (2a)",
+                            "x = (-5 ± √(25 - 4(2)(-3))) / 4 = (-5 ± √49) / 4",
+                            "x = (-5 ± 7) / 4, so x = 1/2 or x = -3."
+                        ],
+                        exercises: [
+                            "1. Solve x² + 6x + 8 = 0.",
+                            "2. Solve 3x² - 2x - 5 = 0."
+                        ]
+                    },
+                    {
+                        name: "Complex Numbers",
+                        examples: [
+                            "Simplify √(-25).",
+                            "√(-25) = √(25) * √(-1) = 5i."
+                        ],
+                        exercises: [
+                            "1. Simplify √(-49).",
+                            "2. Simplify √(20)."
+                        ]
+                    }
+                ],
+                skills: ["Solve quadratic equations", "perform basic operations with complex numbers."]
+            },
+            {
+                session: "Session 5: Polynomial Functions",
+                topics: [
+                    {
+                        name: "Multiplying Polynomials",
+                        examples: [
+                            "Multiply (x + 2)(x² - 3x + 5).",
+                            "Use distributive property: x(x² - 3x + 5) + 2(x² - 3x + 5)",
+                            "x³ - 3x² + 5x + 2x² - 6x + 10",
+                            "Combine like terms: x³ - x² - x + 10."
+                        ],
+                        exercises: [
+                            "1. Multiply (a - 3)(a² + a - 4).",
+                            "2. Multiply (2x + 1)(x² - 5x + 3)."
+                        ]
+                    },
+                    {
+                        name: "Factoring Advanced Polynomials",
+                        examples: [
+                            "Factor by grouping: x³ + 2x² + 3x + 6.",
+                            "Group terms: (x³ + 2x²) + (3x + 6)",
+                            "Factor GCF from each group: x²(x + 2) + 3(x + 2)",
+                            "Final factored form: (x² + 3)(x + 2)."
+                        ],
+                        exercises: [
+                            "1. Factor by grouping: a³ + 4a² + 2a + 8.",
+                            "2. Factor x³ - 8."
+                        ]
+                    }
+                ],
+                skills: ["Perform operations with polynomials", "use advanced factoring techniques."]
+            },
+            {
+                session: "Session 6: Rational Expressions and Equations",
+                topics: [
+                    {
+                        name: "Simplifying Rational Expressions",
+                        examples: [
+                            "Simplify (x² - 4)/(x² + 3x + 2).",
+                            "Factor numerator and denominator: ((x-2)(x+2)) / ((x+1)(x+2))",
+                            "Cancel common factor: (x - 2) / (x + 1)."
+                        ],
+                        exercises: [
+                            "1. Simplify (x² - 9) / (x - 3).",
+                            "2. Simplify (2a + 4) / (a² - 4)."
+                        ]
+                    },
+                    {
+                        name: "Solving Rational Equations",
+                        examples: [
+                            "Solve 1/x + 2/3 = 1.",
+                            "Multiply all terms by the common denominator (3x): 3 + 2x = 3x",
+                            "Solve for x: 3 = x."
+                        ],
+                        exercises: [
+                            "1. Solve 2/(x+1) = 3/(x-1).",
+                            "2. Solve 5/y - 1 = 2/y."
+                        ]
+                    }
+                ],
+                skills: ["Manipulate rational expressions", "solve equations with rational expressions."]
+            },
+            {
+                session: "Session 7: Radical Functions and Rational Exponents",
+                topics: [
+                    {
+                        name: "Simplifying Radicals",
+                        examples: [
+                            "Simplify √72.",
+                            "√72 = √(36 × 2) = √36 × √2 = 6√2."
+                        ],
+                        exercises: [
+                            "1. Simplify √50.",
+                            "2. Simplify √12."
+                        ]
+                    },
+                    {
+                        name: "Rational Exponents",
+                        examples: [
+                            "Simplify 16^(3/2).",
+                            "This is the same as (√16)³, which is 4³ = 64."
+                        ],
+                        exercises: [
+                            "1. Simplify 8^(2/3).",
+                            "2. Simplify 27^(1/3)."
+                        ]
+                    }
+                ],
+                skills: ["Perform operations with radicals", "convert between radicals and rational exponents."]
+            },
+            {
+                session: "Session 8: Exponential and Logarithmic Functions",
+                topics: [
+                    {
+                        name: "Exponential Functions",
+                        examples: [
+                            "Graph the function y = 2ˣ.",
+                            "Create a table of values for x = -2, -1, 0, 1, 2 to plot points."
+                        ],
+                        exercises: [
+                            "1. Does y = (1/3)ˣ show exponential growth or decay?",
+                            "2. What is the y-intercept of y = 5ˣ?"
+                        ]
+                    },
+                    {
+                        name: "Logarithms",
+                        examples: [
+                            "Evaluate log₂(8).",
+                            "This asks, 'What power do I raise 2 to to get 8?'",
+                            "Since 2³ = 8, the answer is 3."
+                        ],
+                        exercises: [
+                            "1. Evaluate log₃(9).",
+                            "2. Evaluate log₅(25)."
+                        ]
+                    }
+                ],
+                skills: ["Graph exponential functions", "understand and evaluate logarithms."]
+            },
+            {
+                session: "Session 9: Solving Exponential and Logarithmic Equations",
+                topics: [
+                    {
+                        name: "Solving Exponential Equations",
+                        examples: [
+                            "Solve 5ˣ = 125.",
+                            "Since 125 = 5³, we can set the exponents equal: x = 3."
+                        ],
+                        exercises: [
+                            "1. Solve 4ˣ = 64.",
+                            "2. Solve 2ˣ = 32."
+                        ]
+                    },
+                    {
+                        name: "Solving Logarithmic Equations",
+                        examples: [
+                            "Solve log₄(x) = 2.",
+                            "Convert to exponential form: 4² = x, so x = 16."
+                        ],
+                        exercises: [
+                            "1. Solve log₂(y) = 5.",
+                            "2. Solve log₃(z) = 4."
+                        ]
+                    }
+                ],
+                skills: ["Solve equations involving exponents and logarithms."]
+            },
+            {
+                session: "Session 10: Systems of Equations",
+                topics: [
+                    {
+                        name: "Solving Non-Linear Systems",
+                        examples: [
+                            "Solve the system: y = x² - 3x - 4 and y = -x + 4.",
+                            "Set equations equal: x² - 3x - 4 = -x + 4",
+                            "Simplify to x² - 2x - 8 = 0",
+                            "Factor: (x-4)(x+2)=0. Solutions are x=4 and x=-2."
+                        ],
+                        exercises: [
+                            "1. Solve the system: y = x² - 1 and y = x + 1.",
+                            "2. Solve the system: y = -x² + 5 and y = 4."
+                        ]
+                    }
+                ],
+                skills: ["Apply substitution and elimination to solve non-linear systems."]
+            },
+            {
+                session: "Session 11: Matrices",
+                topics: [
+                    {
+                        name: "Matrix Operations",
+                        examples: [
+                            "Add the two matrices:",
+                            "| 2  3 | + | 0  5 | = | 2+0  3+5 | = | 2  8 |",
+                            "| 1  4 |   | 6  7 |   | 1+6  4+7 |   | 7  11 |"
+                        ],
+                        exercises: [
+                            "1. Subtract: | 5  1 | - | 3  0 |.",
+                            "2. Multiply: | 2  1 | × | 3 |."
+                        ]
+                    }
+                ],
+                skills: ["Perform basic matrix addition, subtraction, and multiplication."]
+            },
+            {
+                session: "Session 12: Conic Sections",
+                topics: [
+                    {
+                        name: "Equations of Conic Sections",
+                        examples: [
+                            "Circle: (x-h)² + (y-k)² = r²",
+                            "Parabola: y = a(x-h)² + k",
+                            "Ellipse: (x-h)²/a² + (y-k)²/b² = 1",
+                            "Hyperbola: (x-h)²/a² - (y-k)²/b² = 1"
+                        ],
+                        exercises: [
+                            "1. What conic section is represented by 4x² + y² = 16?",
+                            "2. Identify the center and radius of (x-2)² + y² = 9."
+                        ]
+                    }
+                ],
+                skills: ["Identify and write equations for conic sections."]
+            },
+            {
+                session: "Session 13: Sequences and Series",
+                topics: [
+                    {
+                        name: "Arithmetic vs. Geometric Sequences",
+                        examples: [
+                            "Arithmetic: 3, 7, 11, 15... (common difference of 4).",
+                            "Geometric: 2, 6, 18, 54... (common ratio of 3)."
+                        ],
+                        exercises: [
+                            "1. Is 5, 8, 11, 14... arithmetic or geometric?",
+                            "2. Is 4, 8, 16, 32... arithmetic or geometric?"
+                        ]
+                    }
+                ],
+                skills: ["Differentiate between arithmetic and geometric sequences."]
+            },
+            {
+                session: "Session 14: Probability and Statistics",
+                topics: [
+                    {
+                        name: "Permutations vs. Combinations",
+                        examples: [
+                            "Permutations (order matters): How many ways to arrange 3 books from 5?",
+                            "Combinations (order doesn't matter): How many ways to choose 3 books from 5?"
+                        ],
+                        exercises: [
+                            "1. Is picking a team of 5 from 12 people a permutation or combination?",
+                            "2. Is arranging 3 letters from the word 'MATH' a permutation or combination?"
+                        ]
+                    }
+                ],
+                skills: ["Differentiate between permutations and combinations."]
+            },
+            {
+                session: "Session 15: Advanced Functions and Review",
+                topics: [
+                    {
+                        name: "Inverse Functions",
+                        examples: [
+                            "Find the inverse of f(x) = 2x + 1.",
+                            "1. Swap x and y: x = 2y + 1.",
+                            "2. Solve for y: y = (x - 1) / 2."
+                        ],
+                        exercises: [
+                            "1. Find the inverse of f(x) = 5x - 3.",
+                            "2. Find the inverse of f(x) = x²."
+                        ]
+                    }
+                ],
+                skills: ["Find the inverse of a function", "comprehensively review all topics."]
+            }
+        ];
+
+        // Function to show a custom message box
+        function showMessageBox(message) {
+            messageText.textContent = message;
+            messageBox.style.display = 'block';
+        }
+
+        // Event listener for the OK button on the message box
+        messageOkBtn.addEventListener('click', () => {
+            messageBox.style.display = 'none';
+        });
+
+        // Function to draw the grid lines
+        function drawGrid() {
+            ctx.save(); // Save current context state
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; // Subtle white lines
+            ctx.lineWidth = 1;
+
+            // Draw vertical lines
+            for (let x = 0; x <= canvas.width; x += GRID_SPACING) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+
+            // Draw horizontal lines
+            for (let y = 0; y <= canvas.height; y += GRID_SPACING) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            ctx.restore(); // Restore context state
+        }
+
+        // Function to draw chalk-like text
+        function drawChalkText(text, x, y, color, fontSize) {
+            ctx.save();
+            ctx.font = `300 ${fontSize}px 'Inter', sans-serif`;
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.9;
+            ctx.shadowBlur = 1;
+            ctx.shadowColor = color;
+
+            const numStrokes = 3;
+            for (let i = 0; i < numStrokes; i++) {
+                const offsetX = (Math.random() - 0.5) * 2;
+                const offsetY = (Math.random() - 0.5) * 2;
+                ctx.fillText(text, x + offsetX, y + offsetY);
+            }
+            ctx.restore();
+        }
+
+        // Main function to redraw the entire canvas content
+        function redrawAll() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = CHALKBOARD_COLOR;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (appState.isGridActive) {
+                drawGrid();
+            }
+
+            // Redraw all saved drawings
+            drawingHistory.forEach(item => {
+                if (item.type === 'path') {
+                    drawSavedPath(item.path, item.color, item.thickness);
+                } else if (item.type === 'text') {
+                    drawChalkText(item.text, item.x, item.y, item.color, item.fontSize);
+                }
+            });
+
+            // Redraw curriculum content on top if it exists
+            if (appState.curriculumContent) {
+                const startX = 50;
+                let startY = 100;
+                const sectionLineHeight = LIST_ITEM_FONT_SIZE + 10;
+                const subHeaderLineHeight = SUBHEADER_FONT_SIZE + 15;
+                const headerLineHeight = HEADER_FONT_SIZE + 15;
+
+                drawChalkText(appState.curriculumContent.title, startX, startY, currentColor, HEADER_FONT_SIZE);
+                startY += headerLineHeight + 20;
+
+                if (appState.curriculumContent.type === 'session') {
+                    drawChalkText("Topics:", startX, startY, '#94a3b8', SUBHEADER_FONT_SIZE);
+                    startY += subHeaderLineHeight;
+                    appState.curriculumContent.content.topics.forEach(topic => {
+                        drawChalkText("• " + topic.name, startX + 20, startY, currentColor, LIST_ITEM_FONT_SIZE);
+                        startY += sectionLineHeight;
+                    });
+                    startY += 20;
+                    drawChalkText("Skills:", startX, startY, '#94a3b8', SUBHEADER_FONT_SIZE);
+                    startY += subHeaderLineHeight;
+                    appState.curriculumContent.content.skills.forEach(skill => {
+                        drawChalkText("• " + skill, startX + 20, startY, currentColor, LIST_ITEM_FONT_SIZE);
+                        startY += sectionLineHeight;
+                    });
+                } else if (appState.curriculumContent.type === 'examples') {
+                    appState.curriculumContent.content.examples.forEach(example => {
+                        drawChalkText(example, startX, startY, currentColor, LIST_ITEM_FONT_SIZE);
+                        startY += sectionLineHeight;
+                    });
+                } else if (appState.curriculumContent.type === 'exercises') {
+                    appState.curriculumContent.content.exercises.forEach(exercise => {
+                        drawChalkText(exercise, startX, startY, currentColor, LIST_ITEM_FONT_SIZE);
+                        startY += sectionLineHeight;
+                    });
+                }
+            }
+        }
+
+        // Function to save and draw a path from history
+        function drawSavedPath(path, color, thickness) {
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = thickness;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = 0.9;
+            ctx.shadowBlur = 1.5;
+            ctx.shadowColor = color;
+
+            if (path.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(path[0].x, path[0].y);
+                for (let i = 1; i < path.length; i++) {
+                    ctx.lineTo(path[i].x, path[i].y);
+                }
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        // Function to draw a single smoother, chalk-like stroke (for live drawing)
+        function drawLivePath(x1, y1, x2, y2, color, thickness) {
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = thickness;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = 0.9;
+            ctx.shadowBlur = 1.5;
+            ctx.shadowColor = color;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Function to draw an eraser stroke (for live erasing)
+        function drawEraser(x1, y1, x2, y2) {
+            ctx.save();
+            ctx.strokeStyle = CHALKBOARD_COLOR;
+            ctx.lineWidth = ERASER_THICKNESS;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Function to resize canvas to fit its container
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            redrawAll(); // Redraw everything on resize
+        }
+
+        // Initial canvas setup and resize
+        window.addEventListener('load', () => {
+            populateSessionDropdown();
+            resizeCanvas();
+        });
+        window.addEventListener('resize', resizeCanvas);
+
+
+        // Drawing event handlers
+        function startDrawing(e) {
+            if (appState.mode === 'curriculum' || appState.mode === 'text') return;
+            isDrawing = true;
+            const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+            [lastX, lastY] = [clientX, clientY];
+            currentDrawingPath = [{x: lastX, y: lastY}];
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+
+            const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+
+            if (appState.mode === 'erase') {
+                drawEraser(lastX, lastY, clientX, clientY);
+                // Also save erasure to history for redraw
+                drawingHistory.push({ type: 'path', path: [{ x: lastX, y: lastY }, { x: clientX, y: clientY }], color: CHALKBOARD_COLOR, thickness: ERASER_THICKNESS });
+            } else {
+                drawLivePath(lastX, lastY, clientX, clientY, currentColor, CHALK_THICKNESS);
+                currentDrawingPath.push({x: clientX, y: clientY});
+            }
+
+            [lastX, lastY] = [clientX, clientY];
+        }
+
+        function stopDrawing() {
+            if (isDrawing && appState.mode === 'draw') {
+                drawingHistory.push({ type: 'path', path: currentDrawingPath, color: currentColor, thickness: CHALK_THICKNESS });
+            }
+            isDrawing = false;
+        }
+
+        function handleCanvasClickForText(e) {
+            if (appState.mode !== 'text') return;
+
+            const textToDraw = textInput.value.trim();
+            if (textToDraw !== '') {
+                e.preventDefault();
+                const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+
+                // Save text to drawing history
+                drawingHistory.push({
+                    type: 'text',
+                    text: textToDraw,
+                    x: clientX,
+                    y: clientY,
+                    color: currentColor,
+                    fontSize: TEXT_FONT_SIZE
+                });
+
+                // Redraw to show the new text
+                redrawAll();
+
+                // Reset mode after placing text
+                setMode('draw');
+            } else {
+                showMessageBox('Please enter some text to draw.');
+            }
+        }
+
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+        canvas.addEventListener('touchstart', startDrawing);
+        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchend', stopDrawing);
+        canvas.addEventListener('touchcancel', stopDrawing);
+        canvas.addEventListener('click', handleCanvasClickForText);
+
+        // Helper function to set the app mode and update UI
+        function setMode(newMode) {
+            appState.mode = newMode;
+            // Remove 'active' class from all buttons
+            [drawTextBtn, eraserBtn, toggleGridBtn].forEach(btn => btn.classList.remove('active'));
+
+            // Add 'active' class to the current mode button
+            if (newMode === 'text') {
+                drawTextBtn.classList.add('active');
+            } else if (newMode === 'erase') {
+                eraserBtn.classList.add('active');
+            }
+        }
+
+        // Function to populate the session dropdown
+        function populateSessionDropdown() {
+            sessionSelect.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = "0";
+            defaultOption.textContent = "Select a session...";
+            defaultOption.disabled = true;
+            defaultOption.selected = true;
+            sessionSelect.appendChild(defaultOption);
+
+            curriculum.forEach((item, index) => {
+                const option = document.createElement('option');
+                option.value = index + 1;
+                option.textContent = item.session;
+                sessionSelect.appendChild(option);
+            });
+        }
+
+        // Function to populate the topic dropdown based on the selected session
+        function populateTopicDropdown(sessionIndex) {
+            topicSelect.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = `${sessionIndex}-0`; // Tie the default to the session
+            defaultOption.textContent = "Select a topic...";
+            defaultOption.disabled = true;
+            defaultOption.selected = true;
+            topicSelect.appendChild(defaultOption);
+
+            if (sessionIndex > 0) {
+                const sessionItem = curriculum[sessionIndex - 1];
+                sessionItem.topics.forEach((topic, topicIndex) => {
+                    const option = document.createElement('option');
+                    option.value = `${sessionIndex}-${topicIndex}`;
+                    option.textContent = topic.name;
+                    topicSelect.appendChild(option);
+                });
+            }
+        }
+
+        // Display selected session's overview
+        function displaySessionOverview(sessionItem) {
+            if (!sessionItem) {
+                appState.curriculumContent = null;
+            } else {
+                appState.curriculumContent = {
+                    type: 'session',
+                    title: sessionItem.session,
+                    content: sessionItem
+                };
+            }
+            redrawAll();
+        }
+
+        // Display a specific topic's examples
+        function displayTopicExamples(topicData) {
+            appState.curriculumContent = {
+                type: 'examples',
+                title: topicData.name + " - Examples",
+                content: topicData
+            };
+            redrawAll();
+        }
+
+        // Display a specific topic's exercises
+        function displayTopicExercises(topicData) {
+            appState.curriculumContent = {
+                type: 'exercises',
+                title: topicData.name + " - Exercises",
+                content: topicData
+            };
+            redrawAll();
+        }
+
+        // Event listener for the session dropdown
+        sessionSelect.addEventListener('change', (e) => {
+            const selectedIndex = parseInt(e.target.value, 10);
+            if (selectedIndex > 0) {
+                populateTopicDropdown(selectedIndex);
+                topicSelect.disabled = false;
+                displaySessionOverview(curriculum[selectedIndex - 1]);
+            } else {
+                topicSelect.value = "0-0";
+                topicSelect.disabled = true;
+                displaySessionOverview(null);
+            }
+        });
+
+        // Event listener for the topic dropdown
+        topicSelect.addEventListener('change', (e) => {
+            const selectedValue = e.target.value;
+            const [sessionIndex, topicIndex] = selectedValue.split('-').map(Number);
+            if (sessionIndex > 0) {
+                const topicData = curriculum[sessionIndex - 1].topics[topicIndex];
+                displayTopicExamples(topicData);
+            } else {
+                displaySessionOverview(null);
+            }
+        });
+
+        // Show Exercises button click event
+        showExercisesBtn.addEventListener('click', () => {
+            const selectedValue = topicSelect.value;
+            const [sessionIndex, topicIndex] = selectedValue.split('-').map(Number);
+
+            if (sessionIndex > 0 && topicIndex > -1) {
+                const topicData = curriculum[sessionIndex - 1].topics[topicIndex];
+                if (topicData.exercises.length > 0) {
+                    displayTopicExercises(topicData);
+                } else {
+                    showMessageBox('This topic does not have any exercises.');
+                }
+            } else {
+                showMessageBox('Please select a session and a topic first.');
+            }
+        });
+
+        // Toggle Grid button click event
+        toggleGridBtn.addEventListener('click', () => {
+            appState.isGridActive = !appState.isGridActive;
+            toggleGridBtn.classList.toggle('active', appState.isGridActive);
+            redrawAll();
+        });
+
+        // Draw Text button click event
+        drawTextBtn.addEventListener('click', () => {
+            setMode('text');
+            showMessageBox('Click or tap on the chalkboard to place your text.');
+        });
+
+        // Eraser button click event
+        eraserBtn.addEventListener('click', () => {
+            setMode('erase');
+        });
+
+        // Clear button click event
+        clearBtn.addEventListener('click', () => {
+            showMessageBox('Are you sure you want to clear your drawings? The curriculum examples will remain.');
+            messageOkBtn.onclick = () => {
+                drawingHistory = []; // Clear the drawing history
+                appState.curriculumContent = null; // Also remove curriculum content
+                sessionSelect.value = "0"; // Reset the session dropdown
+                topicSelect.innerHTML = ""; // Clear the topics
+                topicSelect.disabled = true;
+                redrawAll();
+                messageBox.style.display = 'none';
+            };
+        });
+    </script>
+</body>
+</html>
+
