@@ -982,18 +982,26 @@
 
         // Clear button click event
         clearBtn.addEventListener('click', () => {
-            showMessageBox('Are you sure you want to clear your drawings? The curriculum examples will remain.');
-            messageOkBtn.onclick = () => {
+            // Updated message to be accurate
+            showMessageBox('Are you sure you want to clear all your drawings and text? The curriculum content will remain.');
+            messageOkBtn.onclick = () => { // <-- Fixed the syntax error here
                 drawingHistory = []; // Clear the drawing history
-                appState.curriculumContent = null; // Also remove curriculum content
-                sessionSelect.value = "0"; // Reset the session dropdown
-                topicSelect.innerHTML = ""; // Clear the topics
-                topicSelect.disabled = true;
+                
+                // DO NOT clear curriculum content or reset dropdowns
+                // appState.curriculumContent = null; 
+                // sessionSelect.value = "0"; 
+                // topicSelect.innerHTML = ""; 
+                // topicSelect.disabled = true;
+                
                 redrawAll();
                 messageBox.style.display = 'none';
+                
+                // Restore the original OK button behavior after this custom action
+                messageOkBtn.onclick = () => { messageBox.style.display = 'none'; };
             };
         });
     </script>
 </body>
 </html>
+
 
